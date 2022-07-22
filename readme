@@ -1,0 +1,103 @@
+The two main scripts for running the simulations from the paper are plot_script_myocyte.m and plot_script_ventricular.m. Running these scripts will run all simulations and generate all of the main and supplemental figures from the paper.
+
+
+MYOCYTE
+myocyte_model.m: Runs myocyte model (called by plot_script_myocyte.m)
+*note: code requires parallel computing toolbox for use of parallel for loops (alternatively, this can be removed and normal for loops can be used)
+- Flags: 
+	- Ca_flag: specifies ATP or dATP calcium transient for twitch simulations (for force pCa or slack restretch simulations, it doesn't matter what this is set to)
+	- XB_protocol: specifies which type of simulation you want to run (force pCa, slack restretch (Ktr), twitch, or all 3
+	- Ktr_protocol: for Ktr simulations, specifies calcium concentration (pCa = -log[Ca]); for force pCa or twitch simulations, it doesn't matter what this is set to
+	- Suppress_plotting: if set to 0, no plotting; if set to 1, will plot output and print calculations *note: this is separate from the plotting done in plot_script_myocyte (this flag refers to plotting at end of myocyte_model.m)
+	- dATP: specifies dATP percentage
+
+- Set parameters: scale between ATP and dATP values based on dATP percentage; parameter values can be found in table S1
+
+- Run model: run the model based on protocol specified with XB_protocol flag (force pCa, slack restretch, or twitch)
+	- Calls dXdT_myocyte_mechanics, takes parameters defined above as input
+	- Force pCa (get steady state force at various calcium levels, where pCa = -log[Ca]):
+		- Set Kse to high value so contraction is effectively isometric
+		- SL = 2.25 based on Regnier et al. 2004
+		- Initial conditions: all in nonpermissible state
+		- Runs for 300 ms at each pCa value (to develop steady state force)
+		- Some calculations after solving model to get total force from state variables 
+	- Ktr (allow sarcomere to develop steady state force, then shorten to ~50% original sarcomere length, then allow to redevelop force and measure how fast this force redevelopment occurs):
+		- Set Kse to high value so contraction is effectively isometric
+		- SL = 2.25 based on Regnier et al. 2004
+		- Initial conditions: all in nonpermissible state
+		- Protocol (set to match experimental slack restretch data from Regnier et al. 2004): from 0 to 4.488 s - steady state force development (isometric); from 4.488 to 4.5469 s - allow to shorten to 54% SLO; from 4.5469 to 6 s - reset to SL0, allow to shorten
+		- Output state variables from each segment of the protocol are the initial conditions for the next segment, combine output at end
+		- Some calculations after solving model to get total force from state variables 
+	- Twitch (unloaded shortening/twitch simulation):
+		- Set Kse to low number to simulate effectively unloaded twitch/shortening
+		- Initial conditions: all in nonpermissible state
+
+- Read in digitized experimental data
+	- Read in digitized experimental data from Regnier et al. 2004 figure 1a (force pCa data) and figure 3a (slack restretch data)
+	- Interpolate data smoothly across timespan to match model
+	- Digitized data for both ATP and dATP
+		- ATP_points.csv: ATP force pCa data (data points)
+		- ATP_Hill.csv: ATP force pCa data (Hill curve fit)
+		- dATP_points.csv: dATP force pCa data (data points)
+		- dATP_Hill.csv: dATP force pCa data (Hill curve fits)
+		- pCa_4_ATP.csv: ATP slack restretch data, pCa = 4
+		- pCa_4_dATP.csv: dATP slack restretch data, pCa = 4
+
+- Plot output (Twitch, shortening, compare to experimental force pCa and slack restretch data) *this is separate from the plotting done in plot_script_myocyte.m
+- Calculate ec50, Ktr, TTP, RT50, RT90 etc
+	- Calls pCa_calculate.m
+
+dXdT_myocyte_mechanics.m: differential equations for myofilament mechanics model (Lopez et al. 2020) - refer to Lopez et al. 2020 supplement for more details
+- Read in parameters specified in myocyte_model.m
+- Set additional parameters for sarcomere model
+- Adjust rates for metabolite concentrations
+- Set sarcomere length and calcium based on specifications in myocyte_model.m
+- For twitch simulations, uses calcium function where parameters a, b, c, and Ca0 were optimized to match ATP and dATP experimental calcium transients
+- Compute active and passive forces, update state variables
+
+pCa_calculate.m: calculates ec50, hill coefficient for force pCa simulations 
+
+
+
+ORGAN
+cardiovascular_model.m: Runs ventricular model (called by plot_script_ventricular.m) 
+- Flags:
+	- Ca_flag: specifies ATP or dATP calcium transient
+	- HF_protocol: specifies healthy or failing simulation; for failing simulation, swaps in failing metabolite concentrations (as in Lopez 2020)
+	- Suppress_plotting: if set to 0, no plotting; if set to 1, will plot output and print calculations *note: this is separate from the plotting done in plot_script_ventricular (this flag refers to plotting at end of ventricular_model.m)
+	- dATP: specifies dATP percentage
+
+- Set parameters: scale between ATP and dATP values based on dATP percentage; parameter values can be found in table S1 (same parameters as in myocyte model)
+	- Read in experimental rat data - for this paper, I used the mean sham rat (rat 9)
+		- Adjustable_parameters_table_rest.xlsx: contains data on geometry parameters, ATPase parameters etc (for all rats originally in Lopez 2020 study)
+		- Adjustable_parameters_table_swap.xlsx: same as above but with healthy and failing rat values swapped 
+		- data1.xlsx: contains data on rat weight, echo data, metabolites (for all rats originally in Lopez 2020 study)
+	- Adjust parameters based on Nowakowski et al. 2013 mouse data
+
+- Run model
+	- Run cardiovascular mechanics model to steady state without coupled energetics model
+		- Initial conditions: all in non permissible state, initial conditions for volumes and geometry based on Lopez et al. 2020
+		- Run triseg model to get initial geometry (calls TrisegEquations.m)
+		- Run mechanics model (calls dXdT_cardiovascular_mechanics.m)
+		- Store output, initial calculations
+	- Run coupled cardiovascular and energetics model
+		- Run energetics model every 3 beats (calls energetics_model.m)
+		- Run mechanics model (calls dXdT_cardiovascular_mechanics.m)
+		- Store output for every beat, concatenate at end
+- Final calculations
+- Plotting *this is separate from the plotting done in plot_script_ventricular.m
+
+energetics_model.m: runs energetics model; taken directly from Lopez et al. 2020
+- calls dXdT_energetics.m
+- Outputs metabolite concentrations for input into mechanics model
+
+dXdT_energetics.m: differential equations for energetics model
+
+TrisegEquations.m: calculates ventricular geometry based on triseg equations (Lumens et al. 2009) *note: these equations are also found in dXdT_cardiovascular_mechanics.m; this script is only run at the beginning of the simulation to get the initial geometry
+
+dXdT_cardiovascular_mechanics.m: differential equations for mechanics model
+- Read in parameters specified in cardiovascular_model.m
+- Adjust rates for metabolite concentrations
+- Set calcium based on specifications in cardiovascular_model.m
+	- Uses calcium function where parameters a, b, c, and Ca0 were optimized to match ATP and dATP experimental calcium transients
+- Compute active and passive forces, changes in geometry in each segment (RV, LV, septum)
